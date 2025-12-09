@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import SwiftUI
+import AppKit
 
 @MainActor
 class UsageViewModel: ObservableObject {
@@ -20,6 +21,13 @@ class UsageViewModel: ObservableObject {
     private let apiService = UsageAPIService.shared
     private var cancellables = Set<AnyCancellable>()
 
+    // Static DateFormatter to avoid creating it repeatedly
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
     init() {
         selectedAccount = accountManager.selectedAccount
         startAutoRefresh()
@@ -33,6 +41,43 @@ class UsageViewModel: ObservableObject {
                 self?.selectedAccount = self?.accountManager.selectedAccount
             }
         }.store(in: &cancellables)
+
+        // Setup app lifecycle observers for App Nap handling
+        setupAppLifecycleObservers()
+    }
+
+    private func setupAppLifecycleObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appWillResignActive),
+            name: NSApplication.willResignActiveNotification,
+            object: nil
+        )
+    }
+
+    @objc private func appDidBecomeActive() {
+        Task { @MainActor in
+            startAutoRefresh()
+        }
+    }
+
+    @objc private func appWillResignActive() {
+        Task { @MainActor in
+            stopAutoRefresh()
+        }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        refreshTimer?.invalidate()
+        refreshTimer = nil
     }
 
     func fetchUsage() async {
@@ -90,7 +135,9 @@ class UsageViewModel: ObservableObject {
 
         let interval = TimeInterval(refreshInterval * 60)
         refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.refresh()
+            Task { @MainActor in
+                self?.refresh()
+            }
         }
     }
 
@@ -117,9 +164,7 @@ class UsageViewModel: ObservableObject {
             let minutes = Int(interval / 60)
             return "\(minutes) min ago"
         } else {
-            let formatter = DateFormatter()
-            formatter.timeStyle = .short
-            return formatter.string(from: lastUpdated)
+            return Self.timeFormatter.string(from: lastUpdated)
         }
     }
 

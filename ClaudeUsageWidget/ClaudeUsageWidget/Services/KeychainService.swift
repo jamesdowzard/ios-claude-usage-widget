@@ -1,10 +1,12 @@
 import Foundation
 import Security
+import os.log
 
 class KeychainService {
     static let shared = KeychainService()
 
     private let serviceName = "Claude Code-credentials"
+    private let logger = OSLog(subsystem: "com.jamesdowzard.ClaudeUsageWidget", category: "KeychainService")
 
     private init() {}
 
@@ -79,7 +81,10 @@ class KeychainService {
     }
 
     func saveManualToken(_ token: String) -> Bool {
-        let data = token.data(using: .utf8)!
+        guard let data = token.data(using: .utf8) else {
+            os_log("Failed to encode token as UTF-8 data", log: logger, type: .error)
+            return false
+        }
 
         // Delete any existing item first
         let deleteQuery: [String: Any] = [
@@ -96,7 +101,11 @@ class KeychainService {
         ]
 
         let status = SecItemAdd(addQuery as CFDictionary, nil)
-        return status == errSecSuccess
+        if status != errSecSuccess {
+            os_log("Failed to save manual token to keychain: %{public}d", log: logger, type: .error, status)
+            return false
+        }
+        return true
     }
 
     func getManualToken() -> String? {
@@ -161,7 +170,10 @@ class KeychainService {
     }
 
     private func saveAllTokens(_ tokens: [String: String]) -> Bool {
-        guard let data = try? JSONEncoder().encode(tokens) else { return false }
+        guard let data = try? JSONEncoder().encode(tokens) else {
+            os_log("Failed to encode tokens dictionary to JSON", log: logger, type: .error)
+            return false
+        }
 
         // Delete existing
         let deleteQuery: [String: Any] = [
@@ -178,7 +190,11 @@ class KeychainService {
         ]
 
         let status = SecItemAdd(addQuery as CFDictionary, nil)
-        return status == errSecSuccess
+        if status != errSecSuccess {
+            os_log("Failed to save tokens to keychain: %{public}d", log: logger, type: .error, status)
+            return false
+        }
+        return true
     }
 
     func saveToken(_ token: String, forAccountId accountId: String) -> Bool {
@@ -221,7 +237,10 @@ class KeychainService {
     }
 
     private func saveAllCredentials(_ credentials: [String: OAuthCredentials]) -> Bool {
-        guard let data = try? JSONEncoder().encode(credentials) else { return false }
+        guard let data = try? JSONEncoder().encode(credentials) else {
+            os_log("Failed to encode credentials dictionary to JSON", log: logger, type: .error)
+            return false
+        }
 
         // Delete existing
         let deleteQuery: [String: Any] = [
@@ -238,7 +257,11 @@ class KeychainService {
         ]
 
         let status = SecItemAdd(addQuery as CFDictionary, nil)
-        return status == errSecSuccess
+        if status != errSecSuccess {
+            os_log("Failed to save credentials to keychain: %{public}d", log: logger, type: .error, status)
+            return false
+        }
+        return true
     }
 
     func saveCredentials(_ credentials: OAuthCredentials, forAccountId accountId: String) -> Bool {

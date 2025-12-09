@@ -190,6 +190,8 @@ struct MenuBarView: View {
                     .buttonStyle(.plain)
                     .foregroundColor(retroGray)
                     .disabled(viewModel.isLoading)
+                    .accessibilityLabel("Refresh usage data")
+                    .accessibilityHint("Fetches the latest usage statistics from Claude API")
 
                     Button(action: { showingSettings = true }) {
                         Text("⚙ Settings")
@@ -197,6 +199,8 @@ struct MenuBarView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(retroGray)
+                    .accessibilityLabel("Open settings")
+                    .accessibilityHint("Opens the settings panel to manage accounts and preferences")
 
                     Button(action: { NSApplication.shared.terminate(nil) }) {
                         Text("×")
@@ -204,6 +208,8 @@ struct MenuBarView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(retroGray)
+                    .accessibilityLabel("Quit application")
+                    .accessibilityHint("Closes the Claude Usage Widget application")
                 }
 
                 // Token expiry info
@@ -331,6 +337,8 @@ struct MenuBarView: View {
                 }
                 .buttonStyle(.plain)
                 .help(account.name)
+                .accessibilityLabel("Switch to \(account.name)")
+                .accessibilityHint("Switches the active Claude account to view usage data")
             }
         }
         .cornerRadius(4)
