@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 @main
 struct ClaudeUsageWidgetApp: App {
@@ -18,13 +19,13 @@ struct MenuBarLabel: View {
     @ObservedObject var viewModel: UsageViewModel
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image("ClaudeIcon")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 16, height: 16)
+        HStack(spacing: 2) {
+            if let nsImage = NSImage(named: "ClaudeIcon") {
+                Image(nsImage: nsImage)
+                    .renderingMode(.template)
+            }
             Text(usageText)
-                .font(.system(.body, design: .monospaced))
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
         }
     }
 
