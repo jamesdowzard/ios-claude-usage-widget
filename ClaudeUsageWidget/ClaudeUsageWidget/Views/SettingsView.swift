@@ -75,7 +75,7 @@ struct SettingsView: View {
             }
         }
         .padding()
-        .frame(width: 350, height: 380)
+        .frame(width: 350, height: 500)
         .sheet(isPresented: $showingTokenInput) {
             tokenInputSheet
         }
