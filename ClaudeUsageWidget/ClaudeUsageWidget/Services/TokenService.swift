@@ -1,22 +1,14 @@
 import Foundation
 
 /// Service for managing OAuth tokens with expiry detection
-/// Priority: 1. Config file/env vars, 2. Keychain credentials, 3. Legacy token storage
 class TokenService {
     static let shared = TokenService()
 
     private init() {}
 
-    /// Get a valid access token for an account
-    /// Checks config file first, then keychain
+    /// Get a valid access token for an account, checking expiry first
     func getValidToken(for account: Account) -> String? {
-        // First try config-based credentials (env vars or config file)
-        let accountType = account.name.lowercased()
-        if let configCreds = ConfigService.shared.getConfigCredentials(for: accountType) {
-            return configCreds.access
-        }
-
-        // Then check keychain credentials with expiry info
+        // First check if we have full credentials with expiry info
         if let credentials = KeychainService.shared.getCredentials(forAccountId: account.id.uuidString) {
             if !credentials.isExpired {
                 return credentials.accessToken
@@ -31,12 +23,6 @@ class TokenService {
 
     /// Check if an account's token is expired or missing
     func isTokenExpiredOrMissing(for account: Account) -> Bool {
-        // Config-based credentials are always valid (user manages them)
-        let accountType = account.name.lowercased()
-        if ConfigService.shared.getConfigCredentials(for: accountType) != nil {
-            return false
-        }
-
         if let credentials = KeychainService.shared.getCredentials(forAccountId: account.id.uuidString) {
             return credentials.isExpired
         }
@@ -71,12 +57,6 @@ class TokenService {
 
     /// Format expiry time for display
     func expiryDescription(for account: Account) -> String? {
-        // Config-based credentials show as "Config"
-        let accountType = account.name.lowercased()
-        if ConfigService.shared.getConfigCredentials(for: accountType) != nil {
-            return "From config"
-        }
-
         guard let timeRemaining = timeUntilExpiry(for: account) else {
             return nil
         }

@@ -1,15 +1,29 @@
 import SwiftUI
-import AppKit
 
 @main
 struct ClaudeUsageWidgetApp: App {
     @StateObject private var viewModel = UsageViewModel()
+    @StateObject private var settings = AppSettings.shared
+    @State private var showingSetup = false
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(viewModel: viewModel)
+            MenuBarView(viewModel: viewModel, settings: settings)
+                .onAppear {
+                    // Show setup if not completed
+                    showingSetup = !settings.hasCompletedSetup
+                }
+                .sheet(isPresented: $showingSetup) {
+                    SetupView(settings: settings)
+                        .onDisappear {
+                            // Refresh data after setup completes
+                            if settings.hasCompletedSetup {
+                                viewModel.refresh()
+                            }
+                        }
+                }
         } label: {
-            MenuBarLabel(viewModel: viewModel)
+            MenuBarLabel(viewModel: viewModel, settings: settings)
         }
         .menuBarExtraStyle(.window)
     }
@@ -17,22 +31,34 @@ struct ClaudeUsageWidgetApp: App {
 
 struct MenuBarLabel: View {
     @ObservedObject var viewModel: UsageViewModel
+    @ObservedObject var settings: AppSettings
 
     var body: some View {
-        HStack(spacing: 2) {
-            if let nsImage = NSImage(named: "ClaudeIcon") {
-                Image(nsImage: nsImage)
-                    .renderingMode(.template)
-            }
+        HStack(spacing: 4) {
+            Image("ClaudeIcon")
+                .renderingMode(.template)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 16, height: 16)
             Text(usageText)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(.system(.body, design: .monospaced))
         }
+        .foregroundColor(.primary)
     }
 
     private var usageText: String {
-        guard let usage = viewModel.usageData?.fiveHour else {
-            return "—%"
+        // Show team data in menu bar when in team mode (or team view in both mode)
+        if settings.mode == .team || (settings.mode == .both && settings.showTeamView) {
+            guard let teamData = viewModel.teamUsageData else {
+                return "—"
+            }
+            return teamData.formattedTotalTokens
+        } else {
+            // Personal usage
+            guard let usage = viewModel.usageData?.fiveHour else {
+                return "—%"
+            }
+            return "\(Int(usage.utilization))%"
         }
-        return "\(Int(usage.utilization))%"
     }
 }
