@@ -2,10 +2,12 @@ import Foundation
 import os.log
 
 /// Service for managing OAuth tokens with expiry detection and automatic refresh
+/// Uses file-based storage to avoid keychain prompts
 class TokenService {
     static let shared = TokenService()
 
     private let logger = Logger(subsystem: "com.jamesdowzard.ClaudeUsageWidget", category: "TokenService")
+    private let fileCredentials = FileCredentialService.shared
 
     // Anthropic OAuth configuration
     private static let tokenURL = URL(string: "https://console.anthropic.com/v1/oauth/token")!
@@ -15,39 +17,34 @@ class TokenService {
 
     /// Get a valid access token for an account, attempting refresh if expired
     func getValidToken(for account: Account) -> String? {
-        // First check if we have full credentials with expiry info
-        if let credentials = KeychainService.shared.getCredentials(forAccountId: account.id.uuidString) {
-            if !credentials.isExpired {
-                return credentials.accessToken
-            }
-            // Token expired - don't return nil yet, let caller handle async refresh
-            return nil
+        // Use file-based credentials
+        if let token = fileCredentials.getValidToken(forAccountId: account.id.uuidString) {
+            return token
         }
 
-        // Fall back to legacy token storage (no expiry info)
-        return AccountManager.shared.getToken(for: account)
+        // Token expired or not found
+        return nil
     }
 
     /// Asynchronously get a valid token, attempting refresh if expired
     func getValidTokenAsync(for account: Account) async -> String? {
-        if let credentials = KeychainService.shared.getCredentials(forAccountId: account.id.uuidString) {
-            if !credentials.isExpired {
-                return credentials.accessToken
-            }
+        let accountId = account.id.uuidString
 
-            // Token expired - try to refresh
-            logger.info("Token expired for account \(account.name), attempting refresh...")
-            if let newCredentials = await refreshToken(for: account, using: credentials.refreshToken) {
-                return newCredentials.accessToken
-            }
-
-            // Refresh failed
-            logger.warning("Token refresh failed for account \(account.name)")
-            return nil
+        // Check if we have a valid token
+        if let token = fileCredentials.getValidToken(forAccountId: accountId) {
+            return token
         }
 
-        // Fall back to legacy token storage (no expiry info)
-        return AccountManager.shared.getToken(for: account)
+        // Token expired - try to refresh
+        if let refreshToken = fileCredentials.getRefreshToken(forAccountId: accountId) {
+            logger.info("Token expired for account \(account.name), attempting refresh...")
+            if let newCredentials = await refreshToken(for: account, using: refreshToken) {
+                return newCredentials.accessToken
+            }
+            logger.warning("Token refresh failed for account \(account.name)")
+        }
+
+        return nil
     }
 
     /// Refresh the access token using the refresh token
@@ -101,14 +98,18 @@ class TokenService {
                 expiresAt: expiresAt
             )
 
-            // Save updated credentials
-            let saved = KeychainService.shared.saveCredentials(newCredentials, forAccountId: account.id.uuidString)
+            // Save updated credentials to file
+            let saved = fileCredentials.updateAccountToken(
+                accountId: account.id.uuidString,
+                accessToken: accessToken,
+                refreshToken: newRefreshToken,
+                expiresAt: expiresAt.timeIntervalSince1970
+            )
+
             if saved {
                 logger.info("Token refreshed successfully for account \(account.name), expires at \(expiresAt)")
-                // Also update legacy token storage
-                AccountManager.shared.updateToken(for: account, token: accessToken)
             } else {
-                logger.error("Failed to save refreshed credentials to keychain")
+                logger.error("Failed to save refreshed credentials to file")
             }
 
             return newCredentials
@@ -121,47 +122,46 @@ class TokenService {
 
     /// Check if token needs refresh (expired or expiring soon)
     func needsRefresh(for account: Account) -> Bool {
-        guard let credentials = KeychainService.shared.getCredentials(forAccountId: account.id.uuidString) else {
-            return false // No credentials to refresh
-        }
-        return credentials.isExpired
+        return fileCredentials.isTokenExpired(forAccountId: account.id.uuidString)
     }
 
     /// Get the refresh token for an account (if available)
     func getRefreshToken(for account: Account) -> String? {
-        return KeychainService.shared.getCredentials(forAccountId: account.id.uuidString)?.refreshToken
+        return fileCredentials.getRefreshToken(forAccountId: account.id.uuidString)
     }
 
     /// Check if an account's token is expired or missing
     func isTokenExpiredOrMissing(for account: Account) -> Bool {
-        if let credentials = KeychainService.shared.getCredentials(forAccountId: account.id.uuidString) {
-            return credentials.isExpired
+        let accountId = account.id.uuidString
+        guard let storedAccount = fileCredentials.getAccount(byId: accountId) else {
+            return true  // No credentials at all
         }
-        // No credentials stored - check if we have a legacy token
-        return AccountManager.shared.getToken(for: account) == nil
+        return fileCredentials.isTokenExpired(forAccountId: accountId)
     }
 
     /// Get time until token expires (for display)
     func timeUntilExpiry(for account: Account) -> TimeInterval? {
-        guard let credentials = KeychainService.shared.getCredentials(forAccountId: account.id.uuidString) else {
+        guard let storedAccount = fileCredentials.getAccount(byId: account.id.uuidString) else {
             return nil
         }
-        return credentials.expiresAt.timeIntervalSinceNow
+        let expiresAt = Date(timeIntervalSince1970: storedAccount.expiresAt)
+        return expiresAt.timeIntervalSinceNow
     }
 
     /// Import credentials from Claude Code's keychain for the given account
+    /// Note: This still uses keychain to READ from Claude Code, but saves to file
     func importFromClaudeCode(for account: Account) -> Bool {
         guard let credentials = KeychainService.shared.getClaudeCodeCredentials() else {
             return false
         }
 
-        // Save full credentials
-        let saved = KeychainService.shared.saveCredentials(credentials, forAccountId: account.id.uuidString)
-
-        // Also update legacy token storage for backwards compatibility
-        if saved {
-            AccountManager.shared.updateToken(for: account, token: credentials.accessToken)
-        }
+        // Save to file-based storage
+        let saved = fileCredentials.updateAccountToken(
+            accountId: account.id.uuidString,
+            accessToken: credentials.accessToken,
+            refreshToken: credentials.refreshToken,
+            expiresAt: credentials.expiresAt.timeIntervalSince1970
+        )
 
         return saved
     }
