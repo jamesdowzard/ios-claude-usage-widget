@@ -18,6 +18,7 @@ struct MenuBarView: View {
     private let retroGray = Color(red: 0.75, green: 0.75, blue: 0.75)
     private let retroBackground = Color(red: 0.1, green: 0.1, blue: 0.1)
     private let retroBorder = Color(red: 0.3, green: 0.3, blue: 0.3)
+    private let claudeOrange = Color(red: 0.757, green: 0.373, blue: 0.235)  // #C15F3C
 
     var body: some View {
         Group {
@@ -51,6 +52,14 @@ struct MenuBarView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 4)
                 .stroke(retroBorder, lineWidth: 2)
+        )
+        .overlay(
+            Image("ClaudeLogo")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(height: 12)
+                .padding(10),
+            alignment: .topTrailing
         )
     }
 
@@ -269,18 +278,32 @@ struct MenuBarView: View {
 
     private func usageView(_ usage: UsageData) -> some View {
         VStack(spacing: 0) {
-            // Header with account selector
-            HStack {
-                Text("Claude Code Usage")
-                    .font(.system(.headline, design: .monospaced))
-                    .foregroundColor(retroGray)
-                Spacer()
-                // Account toggle (only show if there are multiple accounts)
-                if viewModel.accountManager.accounts.count > 1 {
+            // Account selector row (only show if there are multiple accounts)
+            if viewModel.accountManager.accounts.count > 1 {
+                HStack {
                     accountToggle
+                    Spacer()
                 }
+                .padding(.horizontal)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
             }
-            .padding()
+
+            // Header
+            HStack {
+                Spacer()
+                Text("claude code")
+                    .font(.system(.title3, design: .monospaced))
+                    .fontWeight(.semibold)
+                    .foregroundColor(claudeOrange)
+                + Text(" usage")
+                    .font(.system(.title3, design: .monospaced))
+                    .foregroundColor(retroGray.opacity(0.6))
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.top, viewModel.accountManager.accounts.count > 1 ? 4 : 16)
+            .padding(.bottom, 12)
 
             Divider()
                 .background(retroBorder)
@@ -457,16 +480,27 @@ struct MenuBarView: View {
     }
 
     private var accountToggle: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 4) {
             ForEach(viewModel.accountManager.accounts) { account in
+                let isSelected = account.id == viewModel.selectedAccount?.id
                 Button(action: {
                     viewModel.selectAccount(account)
                 }) {
-                    Text(account.icon)
-                        .font(.system(size: 12))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(account.id == viewModel.selectedAccount?.id ? retroGray : retroBorder.opacity(0.3))
+                    VStack(spacing: 8) {
+                        Text(account.icon)
+                            .font(.system(size: 12))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(isSelected ? retroGray : retroBorder.opacity(0.3))
+                            .cornerRadius(4)
+
+                        if isSelected {
+                            PulsingDot()
+                        } else {
+                            Color.clear
+                                .frame(width: 8, height: 8)
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
                 .help(account.name)
@@ -474,8 +508,6 @@ struct MenuBarView: View {
                 .accessibilityHint("Switches the active Claude account to view usage data")
             }
         }
-        .cornerRadius(4)
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(retroBorder, lineWidth: 1))
     }
 
     // MARK: - Token Input View (Inline)
@@ -600,6 +632,32 @@ struct RetroProgressBar: View {
                     .frame(width: 10, height: 14)
             }
         }
+    }
+}
+
+// MARK: - Pulsing Dot Indicator
+
+struct PulsingDot: View {
+    @State private var isPulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(Color.green)
+            .frame(width: 8, height: 8)
+            .overlay(
+                Circle()
+                    .stroke(Color.green.opacity(0.5), lineWidth: 2)
+                    .scaleEffect(isPulsing ? 1.8 : 1.0)
+                    .opacity(isPulsing ? 0.0 : 0.8)
+            )
+            .onAppear {
+                withAnimation(
+                    .easeInOut(duration: 1.0)
+                    .repeatForever(autoreverses: false)
+                ) {
+                    isPulsing = true
+                }
+            }
     }
 }
 
