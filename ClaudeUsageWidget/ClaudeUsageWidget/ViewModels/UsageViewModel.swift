@@ -280,8 +280,8 @@ class UsageViewModel: ObservableObject {
             }
         }
 
-        // Slow timer: All accounts every 5 minutes
-        backgroundRefreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        // Slow timer: Inactive accounts every hour (they're not using anything)
+        backgroundRefreshTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 // Refresh selected account (even if not active)
                 self?.refresh()
