@@ -29,11 +29,15 @@ class UsageViewModel: ObservableObject {
     private let adminAPIService = AdminAPIService.shared
     private var cancellables = Set<AnyCancellable>()
 
-    // Track Claude Code credentials for auto-sync
+    // Track Claude Code credentials for auto-sync (deprecated - using file-based detection)
     private var lastKnownClaudeCodeToken: String?
 
-    // Track which account is currently active in Claude Code (matches keychain credentials)
+    // Track which account is currently active in Claude Code (from ~/.claude/current-account.txt)
     @Published var activeClaudeCodeAccountId: UUID?
+
+    // Path to file written by Claude Code hook containing current account email
+    private let currentAccountFile = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".claude/current-account.txt")
 
     // Static DateFormatter to avoid creating it repeatedly
     private static let timeFormatter: DateFormatter = {
@@ -45,10 +49,7 @@ class UsageViewModel: ObservableObject {
     init() {
         selectedAccount = accountManager.selectedAccount
 
-        // Track initial Claude Code token for change detection
-        lastKnownClaudeCodeToken = KeychainService.shared.getClaudeCodeCredentials()?.accessToken
-
-        // Detect which account is active in Claude Code
+        // Detect which account is active in Claude Code (from file, no keychain access)
         detectActiveClaudeCodeAccount()
 
         startAutoRefresh()
@@ -157,18 +158,17 @@ class UsageViewModel: ObservableObject {
     }
 
     /// Import credentials from Claude Code for the selected account
+    /// Note: This still triggers keychain access since it's a user-initiated import action
     func importCredentialsFromClaudeCode() -> Bool {
         guard let account = selectedAccount else { return false }
         let success = TokenService.shared.importFromClaudeCode(for: account)
         if success {
-            // Also fetch and store the email for this account
-            Task {
-                if let email = await apiService.fetchCurrentProfile() {
-                    _ = FileCredentialService.shared.updateAccountEmail(accountId: account.id.uuidString, email: email)
-                    // Update active account detection
-                    await detectActiveClaudeCodeAccountAsync()
-                }
+            // Store the email from the file (written by Claude Code hook)
+            if let email = readCurrentAccountEmailFromFile() {
+                _ = FileCredentialService.shared.updateAccountEmail(accountId: account.id.uuidString, email: email)
             }
+            // Update active account detection
+            detectActiveClaudeCodeAccount()
             refresh()
         }
         return success
@@ -292,26 +292,9 @@ class UsageViewModel: ObservableObject {
         }
     }
 
-    /// Check if Claude Code credentials have changed and auto-import if so
+    /// Check for active Claude Code account changes (file-based, no keychain prompts)
     private func checkAndSyncClaudeCodeCredentials() {
-        guard let account = selectedAccount else { return }
-
-        let currentClaudeCodeToken = KeychainService.shared.getClaudeCodeCredentials()?.accessToken
-
-        // If token changed, auto-import the new credentials and update email
-        if currentClaudeCodeToken != lastKnownClaudeCodeToken && currentClaudeCodeToken != nil {
-            lastKnownClaudeCodeToken = currentClaudeCodeToken
-            _ = TokenService.shared.importFromClaudeCode(for: account)
-
-            // Also update the email
-            Task {
-                if let email = await apiService.fetchCurrentProfile() {
-                    _ = FileCredentialService.shared.updateAccountEmail(accountId: account.id.uuidString, email: email)
-                }
-            }
-        }
-
-        // Update which account is active in Claude Code
+        // Update which account is active in Claude Code (reads from file)
         detectActiveClaudeCodeAccount()
     }
 
@@ -322,9 +305,25 @@ class UsageViewModel: ObservableObject {
         }
     }
 
-    /// Async version that fetches the profile email to detect active account
+    /// Read current account email from file (written by Claude Code hook)
+    private func readCurrentAccountEmailFromFile() -> String? {
+        guard FileManager.default.fileExists(atPath: currentAccountFile.path) else {
+            return nil
+        }
+        guard let content = try? String(contentsOf: currentAccountFile, encoding: .utf8) else {
+            return nil
+        }
+        let email = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Validate it looks like an email and not an error message
+        guard email.contains("@") else {
+            return nil
+        }
+        return email
+    }
+
+    /// Detect active account by reading email from file (no keychain access)
     private func detectActiveClaudeCodeAccountAsync() async {
-        guard let email = await apiService.fetchCurrentProfile() else {
+        guard let email = readCurrentAccountEmailFromFile() else {
             activeClaudeCodeAccountId = nil
             return
         }
@@ -385,7 +384,7 @@ class UsageViewModel: ObservableObject {
         if let account = selectedAccount {
             return accountManager.getToken(for: account) != nil
         }
-        return KeychainService.shared.getEffectiveToken() != nil
+        return false
     }
 
     var currentAccountName: String {
