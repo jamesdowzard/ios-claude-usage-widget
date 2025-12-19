@@ -21,10 +21,10 @@ class UsageViewModel: ObservableObject {
     @Published var accountManager = AccountManager.shared
     @Published var selectedAccount: Account?
 
-    @AppStorage("refreshInterval") var refreshInterval: Int = 1 // minutes - fixed at 1 minute
     @AppStorage("launchAtLogin") var launchAtLogin: Bool = false
 
-    private var refreshTimer: Timer?
+    private var activeRefreshTimer: Timer?  // Fast refresh for active account (30s)
+    private var backgroundRefreshTimer: Timer?  // Slow refresh for inactive accounts (5min)
     private let apiService = UsageAPIService.shared
     private let adminAPIService = AdminAPIService.shared
     private var cancellables = Set<AnyCancellable>()
@@ -89,12 +89,13 @@ class UsageViewModel: ObservableObject {
 
     @objc private func appDidBecomeActive() {
         Task { @MainActor in
-            // Check for credential changes first (e.g., user did /login in Claude Code)
-            checkAndSyncClaudeCodeCredentials()
+            // Check which account is active in Claude Code
+            detectActiveClaudeCodeAccount()
 
             startAutoRefresh()
             // Immediately refresh data when app becomes active
             refresh()
+            refreshActiveAccount()
             if AppSettings.shared.mode == .team ||
                (AppSettings.shared.mode == .both && AppSettings.shared.showTeamView) {
                 refreshTeam()
@@ -109,8 +110,8 @@ class UsageViewModel: ObservableObject {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-        refreshTimer?.invalidate()
-        refreshTimer = nil
+        activeRefreshTimer?.invalidate()
+        backgroundRefreshTimer?.invalidate()
     }
 
     func fetchUsage() async {
@@ -263,17 +264,29 @@ class UsageViewModel: ObservableObject {
     func startAutoRefresh() {
         stopAutoRefresh()
 
-        let interval = TimeInterval(refreshInterval * 60)
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        // Fast timer: Active account + account detection every 30 seconds
+        activeRefreshTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                // Check for Claude Code credential changes and auto-sync
-                self?.checkAndSyncClaudeCodeCredentials()
+                // Check which account is active in Claude Code (reads statsig)
+                self?.detectActiveClaudeCodeAccount()
 
-                // Refresh both active account (menu bar) and selected account (dropdown)
-                self?.refresh()
+                // Refresh active account usage (menu bar display)
                 self?.refreshActiveAccount()
 
-                // Also refresh team data if in team mode
+                // If selected account is the active one, refresh it too
+                if self?.selectedAccount?.id == self?.activeClaudeCodeAccountId {
+                    self?.refresh()
+                }
+            }
+        }
+
+        // Slow timer: All accounts every 5 minutes
+        backgroundRefreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                // Refresh selected account (even if not active)
+                self?.refresh()
+
+                // Refresh team data if in team mode
                 if AppSettings.shared.mode == .team ||
                    (AppSettings.shared.mode == .both && AppSettings.shared.showTeamView) {
                     self?.refreshTeam()
@@ -281,8 +294,11 @@ class UsageViewModel: ObservableObject {
             }
         }
 
-        // Add timer to common run loop mode so it fires even when menu is open
-        if let timer = refreshTimer {
+        // Add timers to common run loop mode so they fire even when menu is open
+        if let timer = activeRefreshTimer {
+            RunLoop.main.add(timer, forMode: .common)
+        }
+        if let timer = backgroundRefreshTimer {
             RunLoop.main.add(timer, forMode: .common)
         }
     }
@@ -291,12 +307,6 @@ class UsageViewModel: ObservableObject {
         Task {
             await fetchActiveAccountUsage()
         }
-    }
-
-    /// Check for active Claude Code account changes (file-based, no keychain prompts)
-    private func checkAndSyncClaudeCodeCredentials() {
-        // Update which account is active in Claude Code (reads from file)
-        detectActiveClaudeCodeAccount()
     }
 
     /// Detect which account is currently logged into Claude Code by matching email
@@ -326,13 +336,10 @@ class UsageViewModel: ObservableObject {
     }
 
     func stopAutoRefresh() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
-    }
-
-    func updateRefreshInterval(_ minutes: Int) {
-        refreshInterval = minutes
-        startAutoRefresh()
+        activeRefreshTimer?.invalidate()
+        activeRefreshTimer = nil
+        backgroundRefreshTimer?.invalidate()
+        backgroundRefreshTimer = nil
     }
 
     var lastUpdatedText: String {
