@@ -58,9 +58,14 @@ struct MenuBarView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(height: 12)
-                .padding(10),
+                .padding(.top, 16)
+                .padding(.trailing, 10),
             alignment: .topTrailing
         )
+        .onAppear {
+            // Auto-switch to the active Claude Code account when menu opens
+            viewModel.switchToActiveAccountIfAvailable()
+        }
     }
 
     // Determine which view to show

@@ -169,6 +169,21 @@ class UsageViewModel: ObservableObject {
         refresh()
     }
 
+    /// Switch to the active Claude Code account if one is detected
+    func switchToActiveAccountIfAvailable() {
+        // First refresh the active account detection
+        Task {
+            await detectActiveClaudeCodeAccountAsync()
+
+            // If we found an active account and it's different from current, switch to it
+            if let activeId = activeClaudeCodeAccountId,
+               activeId != selectedAccount?.id,
+               let activeAccount = accountManager.accounts.first(where: { $0.id == activeId }) {
+                selectAccount(activeAccount)
+            }
+        }
+    }
+
     func fetchTeamUsage() async {
         isLoadingTeam = true
         teamError = nil
