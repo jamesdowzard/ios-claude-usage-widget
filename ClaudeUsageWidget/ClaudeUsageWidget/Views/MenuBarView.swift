@@ -487,32 +487,24 @@ struct MenuBarView: View {
     private var accountToggle: some View {
         HStack(spacing: 4) {
             ForEach(viewModel.accountManager.accounts) { account in
-                let isSelected = account.id == viewModel.selectedAccount?.id
                 let isActiveInClaudeCode = account.id == viewModel.activeClaudeCodeAccountId
-                Button(action: {
-                    viewModel.selectAccount(account)
-                }) {
-                    VStack(spacing: 8) {
-                        Text(account.icon)
-                            .font(.system(size: 12))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(isSelected ? retroGray : retroBorder.opacity(0.3))
-                            .cornerRadius(4)
+                VStack(spacing: 8) {
+                    Text(account.icon)
+                        .font(.system(size: 12))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(isActiveInClaudeCode ? retroGray : retroBorder.opacity(0.3))
+                        .cornerRadius(4)
 
-                        // Green dot shows which account is active in Claude Code, not which is selected
-                        if isActiveInClaudeCode {
-                            PulsingDot()
-                        } else {
-                            Color.clear
-                                .frame(width: 8, height: 8)
-                        }
+                    // Green dot shows which account is active in Claude Code
+                    if isActiveInClaudeCode {
+                        PulsingDot()
+                    } else {
+                        Color.clear
+                            .frame(width: 8, height: 8)
                     }
                 }
-                .buttonStyle(.plain)
-                .help(isActiveInClaudeCode ? "\(account.name) (Active in Claude Code)" : account.name)
-                .accessibilityLabel("Switch to \(account.name)")
-                .accessibilityHint(isActiveInClaudeCode ? "Currently logged into Claude Code" : "Switches the active Claude account to view usage data")
+                .help(isActiveInClaudeCode ? "\(account.name) (Active)" : account.name)
             }
         }
     }

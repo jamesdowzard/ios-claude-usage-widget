@@ -121,7 +121,16 @@ class UsageViewModel: ObservableObject {
         isLoading = true
         error = nil
 
-        guard let account = selectedAccount else {
+        // Always use the active Claude Code account if available, otherwise fall back to selected
+        let accountToUse: Account?
+        if let activeId = activeClaudeCodeAccountId,
+           let activeAccount = accountManager.accounts.first(where: { $0.id == activeId }) {
+            accountToUse = activeAccount
+        } else {
+            accountToUse = selectedAccount
+        }
+
+        guard let account = accountToUse else {
             error = .tokenNotFound
             isLoading = false
             return
@@ -363,6 +372,11 @@ class UsageViewModel: ObservableObject {
     }
 
     var currentAccountName: String {
-        selectedAccount?.name ?? "Unknown"
+        // Use active Claude Code account if available
+        if let activeId = activeClaudeCodeAccountId,
+           let activeAccount = accountManager.accounts.first(where: { $0.id == activeId }) {
+            return activeAccount.name
+        }
+        return selectedAccount?.name ?? "Unknown"
     }
 }
