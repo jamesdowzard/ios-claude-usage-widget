@@ -28,6 +28,12 @@ class UsageViewModel: ObservableObject {
     private let adminAPIService = AdminAPIService.shared
     private var cancellables = Set<AnyCancellable>()
 
+    // Track Claude Code credentials for auto-sync
+    private var lastKnownClaudeCodeToken: String?
+
+    // Track which account is currently active in Claude Code (matches keychain credentials)
+    @Published var activeClaudeCodeAccountId: UUID?
+
     // Static DateFormatter to avoid creating it repeatedly
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -37,6 +43,13 @@ class UsageViewModel: ObservableObject {
 
     init() {
         selectedAccount = accountManager.selectedAccount
+
+        // Track initial Claude Code token for change detection
+        lastKnownClaudeCodeToken = KeychainService.shared.getClaudeCodeCredentials()?.accessToken
+
+        // Detect which account is active in Claude Code
+        detectActiveClaudeCodeAccount()
+
         startAutoRefresh()
 
         // Fetch initial data based on mode
@@ -58,7 +71,7 @@ class UsageViewModel: ObservableObject {
             }
         }.store(in: &cancellables)
 
-        // Setup app lifecycle observers for App Nap handling
+        // Setup app lifecycle observers
         setupAppLifecycleObservers()
     }
 
@@ -80,14 +93,22 @@ class UsageViewModel: ObservableObject {
 
     @objc private func appDidBecomeActive() {
         Task { @MainActor in
+            // Check for credential changes first (e.g., user did /login in Claude Code)
+            checkAndSyncClaudeCodeCredentials()
+
             startAutoRefresh()
+            // Immediately refresh data when app becomes active
+            refresh()
+            if AppSettings.shared.mode == .team ||
+               (AppSettings.shared.mode == .both && AppSettings.shared.showTeamView) {
+                refreshTeam()
+            }
         }
     }
 
     @objc private func appWillResignActive() {
-        Task { @MainActor in
-            stopAutoRefresh()
-        }
+        // Keep timer running even when inactive for continuous updates
+        // The timer will still fire and fetch fresh data
     }
 
     deinit {
@@ -123,6 +144,14 @@ class UsageViewModel: ObservableObject {
         guard let account = selectedAccount else { return false }
         let success = TokenService.shared.importFromClaudeCode(for: account)
         if success {
+            // Also fetch and store the email for this account
+            Task {
+                if let email = await apiService.fetchCurrentProfile() {
+                    _ = FileCredentialService.shared.updateAccountEmail(accountId: account.id.uuidString, email: email)
+                    // Update active account detection
+                    await detectActiveClaudeCodeAccountAsync()
+                }
+            }
             refresh()
         }
         return success
@@ -204,6 +233,9 @@ class UsageViewModel: ObservableObject {
         let interval = TimeInterval(refreshInterval * 60)
         refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
+                // Check for Claude Code credential changes and auto-sync
+                self?.checkAndSyncClaudeCodeCredentials()
+
                 self?.refresh()
                 // Also refresh team data if in team mode
                 if AppSettings.shared.mode == .team ||
@@ -211,6 +243,58 @@ class UsageViewModel: ObservableObject {
                     self?.refreshTeam()
                 }
             }
+        }
+
+        // Add timer to common run loop mode so it fires even when menu is open
+        if let timer = refreshTimer {
+            RunLoop.main.add(timer, forMode: .common)
+        }
+    }
+
+    /// Check if Claude Code credentials have changed and auto-import if so
+    private func checkAndSyncClaudeCodeCredentials() {
+        guard let account = selectedAccount else { return }
+
+        let currentClaudeCodeToken = KeychainService.shared.getClaudeCodeCredentials()?.accessToken
+
+        // If token changed, auto-import the new credentials and update email
+        if currentClaudeCodeToken != lastKnownClaudeCodeToken && currentClaudeCodeToken != nil {
+            lastKnownClaudeCodeToken = currentClaudeCodeToken
+            _ = TokenService.shared.importFromClaudeCode(for: account)
+
+            // Also update the email
+            Task {
+                if let email = await apiService.fetchCurrentProfile() {
+                    _ = FileCredentialService.shared.updateAccountEmail(accountId: account.id.uuidString, email: email)
+                }
+            }
+        }
+
+        // Update which account is active in Claude Code
+        detectActiveClaudeCodeAccount()
+    }
+
+    /// Detect which account is currently logged into Claude Code by matching email
+    private func detectActiveClaudeCodeAccount() {
+        Task {
+            await detectActiveClaudeCodeAccountAsync()
+        }
+    }
+
+    /// Async version that fetches the profile email to detect active account
+    private func detectActiveClaudeCodeAccountAsync() async {
+        guard let email = await apiService.fetchCurrentProfile() else {
+            activeClaudeCodeAccountId = nil
+            return
+        }
+
+        // Find the account with matching email
+        if let storedAccount = FileCredentialService.shared.getAccountByEmail(email),
+           let uuid = UUID(uuidString: storedAccount.id) {
+            activeClaudeCodeAccountId = uuid
+        } else {
+            // No matching account found - user may need to import to an account
+            activeClaudeCodeAccountId = nil
         }
     }
 

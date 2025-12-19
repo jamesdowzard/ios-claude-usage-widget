@@ -1,6 +1,24 @@
 import Foundation
 import os.log
 
+/// Profile response from Claude API
+struct ProfileResponse: Codable {
+    let account: ProfileAccount
+
+    struct ProfileAccount: Codable {
+        let uuid: String
+        let email: String
+        let fullName: String?
+        let displayName: String?
+
+        enum CodingKeys: String, CodingKey {
+            case uuid, email
+            case fullName = "full_name"
+            case displayName = "display_name"
+        }
+    }
+}
+
 class UsageAPIService {
     static let shared = UsageAPIService()
 
@@ -11,6 +29,13 @@ class UsageAPIService {
     private static var usageURL: URL {
         guard let url = URL(string: "https://api.anthropic.com/api/oauth/usage") else {
             fatalError("Invalid usage URL")
+        }
+        return url
+    }
+
+    private static var profileURL: URL {
+        guard let url = URL(string: "https://api.anthropic.com/api/oauth/profile") else {
+            fatalError("Invalid profile URL")
         }
         return url
     }
@@ -91,6 +116,40 @@ class UsageAPIService {
                 throw UsageError.insufficientScope
             }
             throw UsageError.invalidResponse
+        }
+    }
+
+    // MARK: - Profile Fetching
+
+    /// Fetch the profile (email) for the currently logged in Claude Code account
+    func fetchCurrentProfile() async -> String? {
+        guard let credentials = KeychainService.shared.getClaudeCodeCredentials() else {
+            return nil
+        }
+        return await fetchProfileEmail(withToken: credentials.accessToken)
+    }
+
+    /// Fetch profile email using a specific token
+    func fetchProfileEmail(withToken token: String) async -> String? {
+        var request = URLRequest(url: Self.profileURL)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(Self.apiVersion, forHTTPHeaderField: "anthropic-beta")
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                return nil
+            }
+
+            let profile = try JSONDecoder().decode(ProfileResponse.self, from: data)
+            return profile.account.email
+        } catch {
+            logger.error("Failed to fetch profile: \(error.localizedDescription)")
+            return nil
         }
     }
 }

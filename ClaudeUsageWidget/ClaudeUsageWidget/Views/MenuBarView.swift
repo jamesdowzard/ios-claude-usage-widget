@@ -483,6 +483,7 @@ struct MenuBarView: View {
         HStack(spacing: 4) {
             ForEach(viewModel.accountManager.accounts) { account in
                 let isSelected = account.id == viewModel.selectedAccount?.id
+                let isActiveInClaudeCode = account.id == viewModel.activeClaudeCodeAccountId
                 Button(action: {
                     viewModel.selectAccount(account)
                 }) {
@@ -494,7 +495,8 @@ struct MenuBarView: View {
                             .background(isSelected ? retroGray : retroBorder.opacity(0.3))
                             .cornerRadius(4)
 
-                        if isSelected {
+                        // Green dot shows which account is active in Claude Code, not which is selected
+                        if isActiveInClaudeCode {
                             PulsingDot()
                         } else {
                             Color.clear
@@ -503,9 +505,9 @@ struct MenuBarView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .help(account.name)
+                .help(isActiveInClaudeCode ? "\(account.name) (Active in Claude Code)" : account.name)
                 .accessibilityLabel("Switch to \(account.name)")
-                .accessibilityHint("Switches the active Claude account to view usage data")
+                .accessibilityHint(isActiveInClaudeCode ? "Currently logged into Claude Code" : "Switches the active Claude account to view usage data")
             }
         }
     }

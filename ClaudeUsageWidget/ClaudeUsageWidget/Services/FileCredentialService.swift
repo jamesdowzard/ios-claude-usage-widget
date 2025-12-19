@@ -32,6 +32,7 @@ class FileCredentialService {
         var accessToken: String
         var refreshToken: String
         var expiresAt: Double  // Unix timestamp in seconds
+        var email: String?  // Email associated with this Claude account
     }
 
     // MARK: - Read/Write
@@ -103,7 +104,7 @@ class FileCredentialService {
         return false
     }
 
-    func addAccount(name: String, icon: String, accessToken: String, refreshToken: String, expiresAt: Double) -> StoredAccount {
+    func addAccount(name: String, icon: String, accessToken: String, refreshToken: String, expiresAt: Double, email: String? = nil) -> StoredAccount {
         var credentials = loadCredentials() ?? StoredCredentials(accounts: [], selectedAccountId: nil)
 
         let newAccount = StoredAccount(
@@ -112,7 +113,8 @@ class FileCredentialService {
             icon: icon,
             accessToken: accessToken,
             refreshToken: refreshToken,
-            expiresAt: expiresAt
+            expiresAt: expiresAt,
+            email: email
         )
 
         credentials.accounts.append(newAccount)
@@ -122,6 +124,20 @@ class FileCredentialService {
 
         _ = saveCredentials(credentials)
         return newAccount
+    }
+
+    func updateAccountEmail(accountId: String, email: String) -> Bool {
+        guard var credentials = loadCredentials() else { return false }
+
+        if let index = credentials.accounts.firstIndex(where: { $0.id == accountId }) {
+            credentials.accounts[index].email = email
+            return saveCredentials(credentials)
+        }
+        return false
+    }
+
+    func getAccountByEmail(_ email: String) -> StoredAccount? {
+        return loadCredentials()?.accounts.first { $0.email?.lowercased() == email.lowercased() }
     }
 
     func removeAccount(byId id: String) {
