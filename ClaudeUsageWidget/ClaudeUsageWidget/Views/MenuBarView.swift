@@ -487,24 +487,30 @@ struct MenuBarView: View {
     private var accountToggle: some View {
         HStack(spacing: 4) {
             ForEach(viewModel.accountManager.accounts) { account in
+                let isSelected = account.id == viewModel.selectedAccount?.id
                 let isActiveInClaudeCode = account.id == viewModel.activeClaudeCodeAccountId
-                VStack(spacing: 8) {
-                    Text(account.icon)
-                        .font(.system(size: 12))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(isActiveInClaudeCode ? retroGray : retroBorder.opacity(0.3))
-                        .cornerRadius(4)
+                Button(action: {
+                    viewModel.selectAccount(account)
+                }) {
+                    VStack(spacing: 8) {
+                        Text(account.icon)
+                            .font(.system(size: 12))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(isSelected ? retroGray : retroBorder.opacity(0.3))
+                            .cornerRadius(4)
 
-                    // Green dot shows which account is active in Claude Code
-                    if isActiveInClaudeCode {
-                        PulsingDot()
-                    } else {
-                        Color.clear
-                            .frame(width: 8, height: 8)
+                        // Green dot shows which account is active in Claude Code
+                        if isActiveInClaudeCode {
+                            PulsingDot()
+                        } else {
+                            Color.clear
+                                .frame(width: 8, height: 8)
+                        }
                     }
                 }
-                .help(isActiveInClaudeCode ? "\(account.name) (Active)" : account.name)
+                .buttonStyle(.plain)
+                .help(isActiveInClaudeCode ? "\(account.name) (Active in Claude Code)" : account.name)
             }
         }
     }

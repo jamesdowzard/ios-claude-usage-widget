@@ -81,13 +81,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             button.image = image
         }
 
-        // Update text
+        // Update text - always use active account data for menu bar
         let usageText: String
         if settings.mode == .team || (settings.mode == .both && settings.showTeamView) {
             usageText = viewModel.teamUsageData?.formattedTotalTokens ?? "—"
         } else {
-            // Show both session (5hr) and weekly (7day) usage
-            if let data = viewModel.usageData {
+            // Show both session (5hr) and weekly (7day) usage for the ACTIVE account
+            if let data = viewModel.activeAccountUsageData ?? viewModel.usageData {
                 let session = Int(data.fiveHour.utilization)
                 let weekly = Int(data.sevenDay.utilization)
                 usageText = "\(session)% · \(weekly)%"
@@ -148,8 +148,8 @@ struct MenuBarLabel: View {
             }
             return teamData.formattedTotalTokens
         } else {
-            // Personal usage - show session and weekly
-            guard let data = viewModel.usageData else {
+            // Personal usage - show session and weekly for ACTIVE account
+            guard let data = viewModel.activeAccountUsageData ?? viewModel.usageData else {
                 return "—% · —%"
             }
             let session = Int(data.fiveHour.utilization)

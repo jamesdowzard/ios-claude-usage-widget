@@ -5,7 +5,8 @@ import AppKit
 
 @MainActor
 class UsageViewModel: ObservableObject {
-    @Published var usageData: UsageData?
+    @Published var usageData: UsageData?  // For dropdown display (can be switched)
+    @Published var activeAccountUsageData: UsageData?  // For menu bar (always active account)
     @Published var isLoading = false
     @Published var error: UsageError?
     @Published var lastUpdated: Date?
@@ -55,6 +56,7 @@ class UsageViewModel: ObservableObject {
         // Fetch initial data based on mode
         Task {
             await fetchUsage()
+            await fetchActiveAccountUsage()
 
             // Also fetch team data if in team mode
             let settings = AppSettings.shared
@@ -121,16 +123,8 @@ class UsageViewModel: ObservableObject {
         isLoading = true
         error = nil
 
-        // Always use the active Claude Code account if available, otherwise fall back to selected
-        let accountToUse: Account?
-        if let activeId = activeClaudeCodeAccountId,
-           let activeAccount = accountManager.accounts.first(where: { $0.id == activeId }) {
-            accountToUse = activeAccount
-        } else {
-            accountToUse = selectedAccount
-        }
-
-        guard let account = accountToUse else {
+        // Fetch for the selected account (dropdown display)
+        guard let account = selectedAccount else {
             error = .tokenNotFound
             isLoading = false
             return
@@ -146,6 +140,20 @@ class UsageViewModel: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    /// Fetch usage for the active Claude Code account (for menu bar display)
+    func fetchActiveAccountUsage() async {
+        guard let activeId = activeClaudeCodeAccountId,
+              let activeAccount = accountManager.accounts.first(where: { $0.id == activeId }) else {
+            return
+        }
+
+        do {
+            activeAccountUsageData = try await apiService.fetchUsage(for: activeAccount)
+        } catch {
+            // Silently fail - menu bar will show stale data
+        }
     }
 
     /// Import credentials from Claude Code for the selected account
@@ -260,7 +268,10 @@ class UsageViewModel: ObservableObject {
                 // Check for Claude Code credential changes and auto-sync
                 self?.checkAndSyncClaudeCodeCredentials()
 
+                // Refresh both active account (menu bar) and selected account (dropdown)
                 self?.refresh()
+                self?.refreshActiveAccount()
+
                 // Also refresh team data if in team mode
                 if AppSettings.shared.mode == .team ||
                    (AppSettings.shared.mode == .both && AppSettings.shared.showTeamView) {
@@ -272,6 +283,12 @@ class UsageViewModel: ObservableObject {
         // Add timer to common run loop mode so it fires even when menu is open
         if let timer = refreshTimer {
             RunLoop.main.add(timer, forMode: .common)
+        }
+    }
+
+    func refreshActiveAccount() {
+        Task {
+            await fetchActiveAccountUsage()
         }
     }
 
@@ -372,11 +389,6 @@ class UsageViewModel: ObservableObject {
     }
 
     var currentAccountName: String {
-        // Use active Claude Code account if available
-        if let activeId = activeClaudeCodeAccountId,
-           let activeAccount = accountManager.accounts.first(where: { $0.id == activeId }) {
-            return activeAccount.name
-        }
-        return selectedAccount?.name ?? "Unknown"
+        selectedAccount?.name ?? "Unknown"
     }
 }
