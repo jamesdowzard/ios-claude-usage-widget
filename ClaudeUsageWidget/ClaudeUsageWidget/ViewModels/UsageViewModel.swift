@@ -29,15 +29,8 @@ class UsageViewModel: ObservableObject {
     private let adminAPIService = AdminAPIService.shared
     private var cancellables = Set<AnyCancellable>()
 
-    // Track Claude Code credentials for auto-sync (deprecated - using file-based detection)
-    private var lastKnownClaudeCodeToken: String?
-
-    // Track which account is currently active in Claude Code (from ~/.claude/current-account.txt)
+    // Track which account is currently active in Claude Code (from statsig cache)
     @Published var activeClaudeCodeAccountId: UUID?
-
-    // Path to file written by Claude Code hook containing current account email
-    private let currentAccountFile = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".claude/current-account.txt")
 
     // Static DateFormatter to avoid creating it repeatedly
     private static let timeFormatter: DateFormatter = {
@@ -163,9 +156,17 @@ class UsageViewModel: ObservableObject {
         guard let account = selectedAccount else { return false }
         let success = TokenService.shared.importFromClaudeCode(for: account)
         if success {
-            // Store the email from the file (written by Claude Code hook)
-            if let email = readCurrentAccountEmailFromFile() {
-                _ = FileCredentialService.shared.updateAccountEmail(accountId: account.id.uuidString, email: email)
+            // Store the Claude UUID from statsig (for future auto-detection)
+            if let claudeUUID = FileCredentialService.shared.getCurrentClaudeAccountUUID() {
+                _ = FileCredentialService.shared.updateAccountClaudeUUID(accountId: account.id.uuidString, claudeUUID: claudeUUID)
+            }
+            // Fetch and store the email from profile API
+            Task {
+                if let profile = await apiService.fetchProfile() {
+                    _ = FileCredentialService.shared.updateAccountEmail(accountId: account.id.uuidString, email: profile.email)
+                    // Also store UUID from profile (in case statsig wasn't available)
+                    _ = FileCredentialService.shared.updateAccountClaudeUUID(accountId: account.id.uuidString, claudeUUID: profile.uuid)
+                }
             }
             // Update active account detection
             detectActiveClaudeCodeAccount()
@@ -305,35 +306,21 @@ class UsageViewModel: ObservableObject {
         }
     }
 
-    /// Read current account email from file (written by Claude Code hook)
-    private func readCurrentAccountEmailFromFile() -> String? {
-        guard FileManager.default.fileExists(atPath: currentAccountFile.path) else {
-            return nil
-        }
-        guard let content = try? String(contentsOf: currentAccountFile, encoding: .utf8) else {
-            return nil
-        }
-        let email = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Validate it looks like an email and not an error message
-        guard email.contains("@") else {
-            return nil
-        }
-        return email
-    }
-
-    /// Detect active account by reading email from file (no keychain access)
+    /// Detect active account by reading Claude's statsig cache (no keychain, no API calls)
+    /// Statsig is Claude Code's feature flagging service - it caches the account UUID
     private func detectActiveClaudeCodeAccountAsync() async {
-        guard let email = readCurrentAccountEmailFromFile() else {
+        guard let claudeUUID = FileCredentialService.shared.getCurrentClaudeAccountUUID() else {
             activeClaudeCodeAccountId = nil
             return
         }
 
-        // Find the account with matching email
-        if let storedAccount = FileCredentialService.shared.getAccountByEmail(email),
+        // Find the account with matching Claude UUID
+        if let storedAccount = FileCredentialService.shared.getAccountByClaudeUUID(claudeUUID),
            let uuid = UUID(uuidString: storedAccount.id) {
             activeClaudeCodeAccountId = uuid
         } else {
-            // No matching account found - user may need to import to an account
+            // No matching account - try matching by email as fallback
+            // (for accounts that haven't had their UUID stored yet)
             activeClaudeCodeAccountId = nil
         }
     }

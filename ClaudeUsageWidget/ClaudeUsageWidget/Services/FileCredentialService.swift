@@ -33,6 +33,7 @@ class FileCredentialService {
         var refreshToken: String
         var expiresAt: Double  // Unix timestamp in seconds
         var email: String?  // Email associated with this Claude account
+        var claudeAccountUUID: String?  // Anthropic's UUID for this Claude account (from statsig/profile API)
     }
 
     // MARK: - Read/Write
@@ -140,6 +141,20 @@ class FileCredentialService {
         return loadCredentials()?.accounts.first { $0.email?.lowercased() == email.lowercased() }
     }
 
+    func getAccountByClaudeUUID(_ uuid: String) -> StoredAccount? {
+        return loadCredentials()?.accounts.first { $0.claudeAccountUUID == uuid }
+    }
+
+    func updateAccountClaudeUUID(accountId: String, claudeUUID: String) -> Bool {
+        guard var credentials = loadCredentials() else { return false }
+
+        if let index = credentials.accounts.firstIndex(where: { $0.id == accountId }) {
+            credentials.accounts[index].claudeAccountUUID = claudeUUID
+            return saveCredentials(credentials)
+        }
+        return false
+    }
+
     func removeAccount(byId id: String) {
         guard var credentials = loadCredentials() else { return }
         credentials.accounts.removeAll { $0.id == id }
@@ -173,15 +188,41 @@ class FileCredentialService {
         return getAccount(byId: id)?.refreshToken
     }
 
-    // MARK: - Import from Claude Code
+    // MARK: - Claude Code Statsig Integration
 
-    func importFromClaudeCodeConfig() -> Bool {
-        // Try to read from Claude Code's config file location
+    /// Read the current Claude account UUID from Claude Code's statsig cache
+    /// Statsig is a feature flagging service - Claude Code caches its response which includes the account UUID
+    /// This file updates whenever Claude Code runs, so it reflects the currently logged-in account
+    func getCurrentClaudeAccountUUID() -> String? {
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        let claudeConfigPath = homeDir.appendingPathComponent(".claude/credentials.json")
+        let statsigDir = homeDir.appendingPathComponent(".claude/statsig")
 
-        // Claude Code primarily uses keychain, but we can try file-based fallback
-        // For now, return false - user should use the refresh mechanism
-        return false
+        // Find the most recent statsig cache file
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: statsigDir,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: .skipsHiddenFiles
+        ) else {
+            return nil
+        }
+
+        // Find the cached evaluations file
+        guard let statsigFile = contents.first(where: { $0.lastPathComponent.hasPrefix("statsig.cached.evaluations.") }) else {
+            return nil
+        }
+
+        // Read and parse the file
+        guard let data = try? Data(contentsOf: statsigFile),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataString = json["data"] as? String,
+              let innerData = dataString.data(using: .utf8),
+              let innerJson = try? JSONSerialization.jsonObject(with: innerData) as? [String: Any],
+              let evaluatedKeys = innerJson["evaluated_keys"] as? [String: Any],
+              let customIDs = evaluatedKeys["customIDs"] as? [String: Any],
+              let accountUUID = customIDs["accountUUID"] as? String else {
+            return nil
+        }
+
+        return accountUUID
     }
 }

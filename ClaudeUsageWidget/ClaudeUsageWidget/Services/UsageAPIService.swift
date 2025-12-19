@@ -121,16 +121,23 @@ class UsageAPIService {
 
     // MARK: - Profile Fetching
 
-    /// Fetch the profile (email) for the currently logged in Claude Code account
-    func fetchCurrentProfile() async -> String? {
+    /// Simple profile data for account matching
+    struct ProfileData {
+        let uuid: String
+        let email: String
+    }
+
+    /// Fetch the profile for the currently logged in Claude Code account
+    /// Note: This reads from keychain, so only use for user-initiated actions
+    func fetchProfile() async -> ProfileData? {
         guard let credentials = KeychainService.shared.getClaudeCodeCredentials() else {
             return nil
         }
-        return await fetchProfileEmail(withToken: credentials.accessToken)
+        return await fetchProfileWithToken(credentials.accessToken)
     }
 
-    /// Fetch profile email using a specific token
-    func fetchProfileEmail(withToken token: String) async -> String? {
+    /// Fetch profile using a specific token
+    func fetchProfileWithToken(_ token: String) async -> ProfileData? {
         var request = URLRequest(url: Self.profileURL)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -146,7 +153,7 @@ class UsageAPIService {
             }
 
             let profile = try JSONDecoder().decode(ProfileResponse.self, from: data)
-            return profile.account.email
+            return ProfileData(uuid: profile.account.uuid, email: profile.account.email)
         } catch {
             logger.error("Failed to fetch profile: \(error.localizedDescription)")
             return nil
