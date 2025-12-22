@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import SwiftUI
 import AppKit
+import ServiceManagement
 
 @MainActor
 class UsageViewModel: ObservableObject {
@@ -41,6 +42,9 @@ class UsageViewModel: ObservableObject {
 
     init() {
         selectedAccount = accountManager.selectedAccount
+
+        // Sync launchAtLogin with actual SMAppService state
+        syncLaunchAtLoginState()
 
         // Detect which account is active in Claude Code (from file, no keychain access)
         detectActiveClaudeCodeAccount()
@@ -340,6 +344,14 @@ class UsageViewModel: ObservableObject {
         activeRefreshTimer = nil
         backgroundRefreshTimer?.invalidate()
         backgroundRefreshTimer = nil
+    }
+
+    /// Sync the launchAtLogin toggle with actual SMAppService state
+    private func syncLaunchAtLoginState() {
+        let actualStatus = SMAppService.mainApp.status == .enabled
+        if launchAtLogin != actualStatus {
+            launchAtLogin = actualStatus
+        }
     }
 
     var lastUpdatedText: String {

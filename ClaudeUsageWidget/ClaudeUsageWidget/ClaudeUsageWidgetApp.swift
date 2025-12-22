@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 
 @main
 struct ClaudeUsageWidgetApp: App {
@@ -54,6 +55,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             if let popover = self?.popover, popover.isShown {
                 popover.performClose(nil)
+            }
+        }
+
+        // Sync Launch at Login with SMAppService
+        syncLaunchAtLogin()
+    }
+
+    private func syncLaunchAtLogin() {
+        let shouldLaunchAtLogin = UserDefaults.standard.bool(forKey: "launchAtLogin")
+        let currentStatus = SMAppService.mainApp.status
+
+        if shouldLaunchAtLogin && currentStatus != .enabled {
+            do {
+                try SMAppService.mainApp.register()
+            } catch {
+                print("Failed to register for launch at login: \(error)")
+            }
+        } else if !shouldLaunchAtLogin && currentStatus == .enabled {
+            do {
+                try SMAppService.mainApp.unregister()
+            } catch {
+                print("Failed to unregister from launch at login: \(error)")
             }
         }
     }

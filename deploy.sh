@@ -1,5 +1,6 @@
 #!/bin/bash
 # Deploy ClaudeUsageWidget to /Applications
+# Usage: deploy-claude-widget [--no-build]
 
 set -e
 
@@ -12,21 +13,38 @@ while [ -L "$SCRIPT_PATH" ]; do
 done
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 APP_NAME="ClaudeUsageWidget"
+PROJECT_DIR="$SCRIPT_DIR/ClaudeUsageWidget"
+BUILD_DIR="$PROJECT_DIR/build/Build/Products/Release"
 
-echo "Quitting running app..."
-osascript -e "quit app \"$APP_NAME\"" 2>/dev/null || true
-sleep 1
+# Parse args
+SKIP_BUILD=false
+[[ "$1" == "--no-build" ]] && SKIP_BUILD=true
 
-echo "Building release..."
-cd "$SCRIPT_DIR/ClaudeUsageWidget"
-xcodebuild build -project ClaudeUsageWidget.xcodeproj -scheme ClaudeUsageWidget \
-  -configuration Release -derivedDataPath build -quiet
+# Quit running app
+if pgrep -q "$APP_NAME"; then
+  echo "Quitting $APP_NAME..."
+  osascript -e "quit app \"$APP_NAME\"" 2>/dev/null || true
+  sleep 1
+fi
 
-echo "Copying to /Applications..."
+# Build
+if [ "$SKIP_BUILD" = false ]; then
+  echo "Building release..."
+  cd "$PROJECT_DIR"
+  xcodebuild build -project ClaudeUsageWidget.xcodeproj -scheme ClaudeUsageWidget \
+    -configuration Release -derivedDataPath build -quiet
+  echo "Build complete."
+else
+  echo "Skipping build (--no-build)"
+fi
+
+# Deploy
+echo "Deploying to /Applications..."
 rm -rf "/Applications/$APP_NAME.app"
-cp -R "build/Build/Products/Release/$APP_NAME.app" /Applications/
+cp -R "$BUILD_DIR/$APP_NAME.app" /Applications/
 
-echo "Launching..."
+# Launch
+echo "Launching $APP_NAME..."
 open "/Applications/$APP_NAME.app"
 
-echo "Done - $APP_NAME deployed to /Applications"
+echo "Done! $APP_NAME deployed and running."
